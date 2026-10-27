@@ -398,6 +398,17 @@ def _resolve_property(obj, names):
     raise AttributeError(" | ".join(errors))
 
 
+# C++ enumerator names for EPlayNetMode, for the console `set` fallback.
+_PLAY_NET_MODE_TEXT = {"PIE_STANDALONE": "PIE_Standalone", "PIE_LISTEN_SERVER": "PIE_ListenServer", "PIE_CLIENT": "PIE_Client"}
+
+
+def _console_set(cpp_name, text):
+    """Set a LevelEditorPlaySettings property with the engine's `set` console
+    command. It parses the value as UE text, so it works for properties Python
+    cannot convert (UE 5.5 cannot pythonize PlayNetMode at all)."""
+    unreal.SystemLibrary.execute_console_command(_editor_world(), "set LevelEditorPlaySettings %s %s" % (cpp_name, text), None)
+
+
 def _play_net_mode(settings, prop, name):
     """Return an EPlayNetMode value. The enum is an old-style UENUM that UE 5.5
     does not export as ``unreal.PlayNetMode``, so fall back to the type of the
@@ -424,7 +435,7 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         net_mode, players = "PIE_CLIENT", clients
     else:
         net_mode, players = "PIE_STANDALONE", 1
-    applied, failed = {}, {}
+    applied, failed, via_console = {}, {}, []
     try:
         settings = _play_settings()
     except Exception as exc:
@@ -437,6 +448,11 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
             "play_number_of_clients": lambda prop: players,
             "run_under_one_process": lambda prop: bool(single_process),
         }
+        texts = {
+            "play_net_mode": _PLAY_NET_MODE_TEXT[net_mode],
+            "play_number_of_clients": str(players),
+            "run_under_one_process": "True" if single_process else "False",
+        }
         for key, make_value in values.items():
             try:
                 prop = _resolve_property(settings, _PLAY_SETTING_NAMES[key])
@@ -444,13 +460,21 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
                 settings.set_editor_property(prop, value)
                 applied[key] = net_mode if key == "play_net_mode" else to_json(value)
             except Exception as exc:
-                failed[key] = "%s: %s" % (type(exc).__name__, exc)
+                try:
+                    _console_set(_PLAY_SETTING_NAMES[key][1], texts[key])
+                    applied[key] = net_mode if key == "play_net_mode" else make_value(None)
+                    via_console.append(key)
+                except Exception as console_exc:
+                    failed[key] = "%s: %s; console set: %s: %s" % (
+                        type(exc).__name__, exc, type(console_exc).__name__, console_exc)
     editor.editor_request_begin_play()
     out = {
         "started": True,
         "settings": applied,
         "note": "PIE begins on the next editor tick; call ue_pie_worlds to see the worlds.",
     }
+    if via_console:
+        out["applied_via_console_set"] = via_console
     if failed:
         out["settings_not_applied"] = failed
     return out

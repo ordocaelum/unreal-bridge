@@ -168,7 +168,25 @@ class World(Object):
 
 
 class _LevelEditorPlaySettings(Object):
-    """Not exported to Python in UE 5.5; reachable only through find_object by path."""
+    """Not exported to Python in UE 5.5; reachable only through find_object by path.
+
+    PlayNetMode is a ByteProperty of the non-exported EPlayNetMode enum, which
+    UE 5.5 can neither read nor write from Python (observed live)."""
+
+    def _check_pythonizable(self, name: str) -> None:
+        if name == "PlayNetMode" and "PlayNetMode" not in globals():
+            raise Exception(
+                "Object: Failed to convert property 'PlayNetMode' (ByteProperty) for attribute 'PlayNetMode' "
+                "on 'LevelEditorPlaySettings'\n  TypeError: PythonizeProperty: Cannot pythonize 'PlayNetMode' (ByteProperty)"
+            )
+
+    def get_editor_property(self, name: str) -> object:
+        self._check_pythonizable(name)
+        return super().get_editor_property(name)
+
+    def set_editor_property(self, name: str, value: object) -> None:
+        self._check_pythonizable(name)
+        super().set_editor_property(name, value)
 
 
 class TopLevelAssetPath:
@@ -220,6 +238,7 @@ def reset() -> None:
         editor_world=level,
         pie_worlds=[],
         console=[],
+        set_commands=[],
         saved=[],
         compiled=[],
         modified=[],
@@ -322,6 +341,16 @@ class DataTableFunctionLibrary:
 class SystemLibrary:
     @staticmethod
     def execute_console_command(world_context_object: object, command: str, specific_player: object = None) -> None:
+        parts = command.split()
+        if len(parts) == 4 and parts[0].lower() == "set" and parts[1] == "LevelEditorPlaySettings":
+            # Engine `set <Class> <Property> <Value>`: imports UE text into the CDO's property.
+            _, _, prop, text = parts
+            props = STATE["play_settings"]._props
+            if prop in props:
+                enum_names = {"PIE_Standalone": 0, "PIE_ListenServer": 1, "PIE_Client": 2}
+                props[prop] = enum_names[text] if text in enum_names else {"True": True, "False": False}.get(text, text if not text.isdigit() else int(text))
+            STATE["set_commands"].append(command)
+            return
         STATE["console"].append((world_context_object.get_path_name() if world_context_object else None, command))
 
     @staticmethod
