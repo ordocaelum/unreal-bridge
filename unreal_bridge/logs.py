@@ -23,9 +23,10 @@ def logs_dir(project_dir: str | Path) -> Path:
 
 def pick_log(directory: Path, name: str | None = None) -> Path:
     if name:
+        name = Path(name).name  # a file name only, never a path out of Saved/Logs
+        if not name.lower().endswith(".log"):
+            name += ".log"
         candidate = directory / name
-        if candidate.suffix == "":
-            candidate = candidate.with_suffix(".log")
         if not candidate.is_file():
             raise FileNotFoundError(f"{candidate} does not exist")
         return candidate
