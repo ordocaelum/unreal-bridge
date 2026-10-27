@@ -359,6 +359,22 @@ def console_command(command, world="editor"):
 
 
 _PLAY_NET_MODES = ("PIE_STANDALONE", "PIE_LISTEN_SERVER", "PIE_CLIENT")  # EPlayNetMode order
+_PLAY_SETTINGS_CDO = "/Script/UnrealEd.Default__LevelEditorPlaySettings"
+
+
+def _play_settings():
+    """The LevelEditorPlaySettings CDO, which is what PIE reads. UE 5.5 does not
+    export the class to Python, so look the object up by path; editor-property
+    access still works on it through reflection."""
+    cls = getattr(unreal, "LevelEditorPlaySettings", None)
+    if cls is not None:
+        return unreal.get_default_object(cls)
+    settings = unreal.find_object(None, _PLAY_SETTINGS_CDO)
+    if settings is None:
+        settings = unreal.load_object(None, _PLAY_SETTINGS_CDO)
+    if settings is None:
+        raise RuntimeError("could not find %s" % _PLAY_SETTINGS_CDO)
+    return settings
 
 
 def _play_net_mode(settings, name):
@@ -389,10 +405,10 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         net_mode, players = "PIE_STANDALONE", 1
     applied, failed = {}, {}
     try:
-        settings = unreal.get_default_object(unreal.LevelEditorPlaySettings)
+        settings = _play_settings()
     except Exception as exc:
         settings = None
-        failed["level_editor_play_settings"] = str(exc)
+        failed["level_editor_play_settings"] = "%s: %s" % (type(exc).__name__, exc)
     if settings is not None:
         # Values are built lazily so a failure on one setting never blocks the others or PIE.
         for prop, make_value in (

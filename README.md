@@ -110,7 +110,7 @@ Tool names use underscores (`ue_run_python`, not `ue.run_python`) because the Cl
 - Object and class references take asset paths (`/Game/BP_Key.BP_Key_C` for a Blueprint class). `"None"` clears them.
 - Names, Text, numbers, bools and arrays convert as you'd expect.
 
-Property names are the Python (snake_case) names, e.g. `max_walk_speed`.
+Property names: **Blueprint variables use their name exactly as in the Blueprint** (`IsLocked`), while properties declared in C++ use their Python snake_case name (`base_eye_height` for `BaseEyeHeight`).
 
 **Example batch:** set a default, read it back, and check the log in one call:
 

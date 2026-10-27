@@ -55,11 +55,12 @@ def _enum(cls: type, *names: str) -> None:
         setattr(cls, n, cls(n, i))
 
 
-class PlayNetMode(EnumBase):
-    pass
+class _PlayNetMode(EnumBase):
+    """EPlayNetMode. UE 5.5 does not export it as unreal.PlayNetMode; tests that
+    model an engine which does can expose it with monkeypatch."""
 
 
-_enum(PlayNetMode, "PIE_STANDALONE", "PIE_LISTEN_SERVER", "PIE_CLIENT")
+_enum(_PlayNetMode, "PIE_STANDALONE", "PIE_LISTEN_SERVER", "PIE_CLIENT")
 
 
 class DoorMode(EnumBase):
@@ -166,8 +167,8 @@ class World(Object):
         self.role = role
 
 
-class LevelEditorPlaySettings(Object):
-    pass
+class _LevelEditorPlaySettings(Object):
+    """Not exported to Python in UE 5.5; reachable only through find_object by path."""
 
 
 class TopLevelAssetPath:
@@ -224,9 +225,10 @@ def reset() -> None:
         modified=[],
         transactions=[],
         loaded_levels=[],
-        play_settings=LevelEditorPlaySettings(
+        play_settings=_LevelEditorPlaySettings(
             "/Script/UnrealEd.Default__LevelEditorPlaySettings",
-            {"play_net_mode": PlayNetMode.PIE_STANDALONE, "play_number_of_clients": 1, "run_under_one_process": True},
+            # play_net_mode: a non-exported enum reads back as its integer value
+            {"play_net_mode": 0, "play_number_of_clients": 1, "run_under_one_process": True},
         ),
     )
 
@@ -245,11 +247,17 @@ def load_asset(path: str) -> Object | None:
 
 
 def load_object(outer: object, path: str) -> Object | None:
-    return _lookup(path)
+    return find_object(outer, path)
+
+
+def find_object(outer: object, name: str) -> Object | None:
+    if name == STATE["play_settings"].get_path_name():
+        return STATE["play_settings"]
+    return _lookup(name)
 
 
 def get_default_object(cls: type | Class) -> Object:
-    if cls is LevelEditorPlaySettings:
+    if cls is _LevelEditorPlaySettings:
         return STATE["play_settings"]
     assert isinstance(cls, Class)
     return cls.cdo

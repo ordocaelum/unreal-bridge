@@ -180,14 +180,14 @@ async def test_pie_dedicated_and_standalone(bridge):
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["standalone"]
 
 
-async def test_pie_start_without_playnetmode_enum(bridge, unreal_module, monkeypatch):
-    # UE 5.5 may not export the old-style EPlayNetMode enum to Python.
-    monkeypatch.delattr(unreal_module, "PlayNetMode")
-    unreal_module.STATE["play_settings"]._props["play_net_mode"] = 0
+async def test_pie_start_on_engines_that_export_the_play_settings(bridge, unreal_module, monkeypatch):
+    # UE 5.5 exports neither name (the fake's default); other versions may export both.
+    monkeypatch.setattr(unreal_module, "PlayNetMode", unreal_module._PlayNetMode, raising=False)
+    monkeypatch.setattr(unreal_module, "LevelEditorPlaySettings", unreal_module._LevelEditorPlaySettings, raising=False)
+    unreal_module.STATE["play_settings"]._props["play_net_mode"] = unreal_module._PlayNetMode.PIE_STANDALONE
     res = await server.ue_pie_start(clients=1, listen_server=True)
     assert res["started"] is True and "settings_not_applied" not in res
-    assert res["settings"]["play_net_mode"] == "PIE_LISTEN_SERVER"
-    assert unreal_module.STATE["play_settings"]._props["play_net_mode"] == 1
+    assert unreal_module.STATE["play_settings"]._props["play_net_mode"] == unreal_module._PlayNetMode.PIE_LISTEN_SERVER
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
 
 

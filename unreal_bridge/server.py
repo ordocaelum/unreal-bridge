@@ -303,7 +303,7 @@ async def ue_get_defaults(
     blueprint_path: AssetPath,
     props: Annotated[
         list[str] | None,
-        Field(description="Property names (snake_case, e.g. max_walk_speed). Omit to dump every readable property (best effort)"),
+        Field(description="Property names. Blueprint variables use their name exactly as in the Blueprint (IsLocked); C++ properties use snake_case (base_eye_height). Omit to dump every readable property (best effort; may miss Blueprint variables)"),
     ] = None,
 ) -> dict[str, Any]:
     """Read class-default (CDO) property values of a Blueprint or class.
@@ -319,7 +319,7 @@ async def ue_set_defaults(
     blueprint_path: AssetPath,
     values: Annotated[
         dict[str, Any],
-        Field(description="{property: value}. Values are coerced to the property's type: enums by name, structs from UE text or a {field: value} dict, objects/classes from an asset path"),
+        Field(description="{property: value}, named as in ue_get_defaults (Blueprint variables as in the Blueprint, e.g. IsLocked; C++ properties in snake_case). Values are coerced to the property's type: enums by name, structs from UE text or a {field: value} dict, objects/classes from an asset path"),
     ],
     compile: Annotated[bool, Field(description="Compile the Blueprint afterwards")] = False,
     save: Annotated[bool, Field(description="Save the asset afterwards")] = True,
