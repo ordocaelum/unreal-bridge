@@ -227,8 +227,9 @@ def reset() -> None:
         loaded_levels=[],
         play_settings=_LevelEditorPlaySettings(
             "/Script/UnrealEd.Default__LevelEditorPlaySettings",
-            # play_net_mode: a non-exported enum reads back as its integer value
-            {"play_net_mode": 0, "play_number_of_clients": 1, "run_under_one_process": True},
+            # Like UE 5.5: these properties are not exported to Python, so they only
+            # answer to their C++ names, and the non-exported enum reads back as an int.
+            {"PlayNetMode": 0, "PlayNumberOfClients": 1, "RunUnderOneProcess": True},
         ),
     )
 
@@ -355,8 +356,8 @@ class LevelEditorSubsystem:
 
     def editor_request_begin_play(self) -> None:
         settings = STATE["play_settings"]._props
-        mode = getattr(settings["play_net_mode"], "value", settings["play_net_mode"])  # enum or raw int
-        players = settings["play_number_of_clients"]
+        mode = getattr(settings["PlayNetMode"], "value", settings["PlayNetMode"])  # enum or raw int
+        players = settings["PlayNumberOfClients"]
         base = STATE["editor_world"].get_name()
         worlds = []
         if mode == 0:  # PIE_STANDALONE

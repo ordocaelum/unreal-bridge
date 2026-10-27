@@ -377,13 +377,34 @@ def _play_settings():
     return settings
 
 
-def _play_net_mode(settings, name):
+# Python names first, then the C++ names that properties UE does not export to
+# Python keep (UE 5.5 only answers to PlayNetMode etc. on the play settings).
+_PLAY_SETTING_NAMES = {
+    "play_net_mode": ("play_net_mode", "PlayNetMode"),
+    "play_number_of_clients": ("play_number_of_clients", "PlayNumberOfClients"),
+    "run_under_one_process": ("run_under_one_process", "RunUnderOneProcess", "bRunUnderOneProcess"),
+}
+
+
+def _resolve_property(obj, names):
+    """Return the first of ``names`` that ``obj`` has as an editor property."""
+    errors = []
+    for name in names:
+        try:
+            obj.get_editor_property(name)
+            return name
+        except Exception as exc:
+            errors.append(str(exc))
+    raise AttributeError(" | ".join(errors))
+
+
+def _play_net_mode(settings, prop, name):
     """Return an EPlayNetMode value. The enum is an old-style UENUM that UE 5.5
-    does not always export as ``unreal.PlayNetMode``, so fall back to the type of
-    the property's current value, then to the raw integer."""
+    does not export as ``unreal.PlayNetMode``, so fall back to the type of the
+    property's current value, then to the raw integer."""
     enum = getattr(unreal, "PlayNetMode", None)
     if enum is None:
-        current = settings.get_editor_property("play_net_mode")
+        current = settings.get_editor_property(prop)
         if isinstance(current, _ue_types("EnumBase")):
             enum = type(current)
     member = getattr(enum, name, None) if enum is not None else None
@@ -410,18 +431,20 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         settings = None
         failed["level_editor_play_settings"] = "%s: %s" % (type(exc).__name__, exc)
     if settings is not None:
-        # Values are built lazily so a failure on one setting never blocks the others or PIE.
-        for prop, make_value in (
-            ("play_net_mode", lambda: _play_net_mode(settings, net_mode)),
-            ("play_number_of_clients", lambda: players),
-            ("run_under_one_process", lambda: bool(single_process)),
-        ):
+        # Each setting is resolved and set on its own, so one failure never blocks the others or PIE.
+        values = {
+            "play_net_mode": lambda prop: _play_net_mode(settings, prop, net_mode),
+            "play_number_of_clients": lambda prop: players,
+            "run_under_one_process": lambda prop: bool(single_process),
+        }
+        for key, make_value in values.items():
             try:
-                value = make_value()
+                prop = _resolve_property(settings, _PLAY_SETTING_NAMES[key])
+                value = make_value(prop)
                 settings.set_editor_property(prop, value)
-                applied[prop] = net_mode if prop == "play_net_mode" else to_json(value)
+                applied[key] = net_mode if key == "play_net_mode" else to_json(value)
             except Exception as exc:
-                failed[prop] = "%s: %s" % (type(exc).__name__, exc)
+                failed[key] = "%s: %s" % (type(exc).__name__, exc)
     editor.editor_request_begin_play()
     out = {
         "started": True,

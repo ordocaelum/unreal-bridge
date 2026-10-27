@@ -184,10 +184,10 @@ async def test_pie_start_on_engines_that_export_the_play_settings(bridge, unreal
     # UE 5.5 exports neither name (the fake's default); other versions may export both.
     monkeypatch.setattr(unreal_module, "PlayNetMode", unreal_module._PlayNetMode, raising=False)
     monkeypatch.setattr(unreal_module, "LevelEditorPlaySettings", unreal_module._LevelEditorPlaySettings, raising=False)
-    unreal_module.STATE["play_settings"]._props["play_net_mode"] = unreal_module._PlayNetMode.PIE_STANDALONE
+    unreal_module.STATE["play_settings"]._props["PlayNetMode"] = unreal_module._PlayNetMode.PIE_STANDALONE
     res = await server.ue_pie_start(clients=1, listen_server=True)
     assert res["started"] is True and "settings_not_applied" not in res
-    assert unreal_module.STATE["play_settings"]._props["play_net_mode"] == unreal_module._PlayNetMode.PIE_LISTEN_SERVER
+    assert unreal_module.STATE["play_settings"]._props["PlayNetMode"] == unreal_module._PlayNetMode.PIE_LISTEN_SERVER
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
 
 
@@ -196,7 +196,7 @@ async def test_pie_start_still_plays_when_settings_are_inaccessible(bridge, unre
     real_set = settings.set_editor_property
 
     def guarded(name, value):
-        if name == "play_net_mode":
+        if name == "PlayNetMode":
             raise Exception("Property 'PlayNetMode' for attribute 'play_net_mode' on 'LevelEditorPlaySettings' is protected and cannot be set")
         real_set(name, value)
 
