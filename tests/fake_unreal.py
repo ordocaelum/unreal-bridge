@@ -185,7 +185,7 @@ class _LevelEditorPlaySettings(Object):
         return super().get_editor_property(name)
 
     def set_editor_property(self, name: str, value: object) -> None:
-        # Unverified on real UE 5.5 whether a raw int is accepted; model the pessimistic case.
+        # UE 5.5 rejects a raw int too (verified live): "Cannot nativize 'int' as 'PlayNetMode'".
         if name == "PlayNetMode" and not self._enum_exported():
             raise Exception("Object: Failed to convert property 'PlayNetMode' (ByteProperty): Cannot nativize 'int' as 'EnumBase'")
         if name == "PlayNetMode" and not isinstance(value, EnumBase):
@@ -343,12 +343,6 @@ class DataTableFunctionLibrary:
 
 
 class SystemLibrary:
-    @staticmethod
-    def set_byte_property_by_name(obj: Object, property_name: str, value: int) -> None:
-        # The Blueprint reflection setter: writes the byte (incl. TEnumAsByte) by name.
-        if property_name in obj._props:
-            obj._props[property_name] = value
-
     @staticmethod
     def execute_console_command(world_context_object: object, command: str, specific_player: object = None) -> None:
         if command.lower().startswith("set "):

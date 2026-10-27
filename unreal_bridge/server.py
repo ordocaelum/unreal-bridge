@@ -384,7 +384,11 @@ async def ue_pie_start(
     listen_server: Annotated[bool, Field(description="Host as a listen server (net mode Play As Listen Server)")] = True,
     single_process: Annotated[bool, Field(description="Run every player in the editor process")] = True,
 ) -> dict[str, Any]:
-    """Start Play-In-Editor. Changes the editor's play settings (net mode, player count) to match.
+    """Start Play-In-Editor, setting the editor's player count to match.
+
+    UE 5.5 limitation: Python cannot set the PIE net mode, so PIE runs with the Net
+    Mode chosen in the editor's Play options menu (set it once by hand to Play As
+    Listen Server; it is remembered). The result's settings_not_applied says so.
 
     Returns immediately; PIE begins on the next editor tick, so follow up with ue_pie_worlds.
     """

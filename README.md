@@ -97,7 +97,7 @@ Tool names use underscores (`ue_run_python`, not `ue.run_python`) because the Cl
 | `ue_datatable_read` | `path`, `row_names` | Reads DataTable rows in UE's JSON format (`[{"Name": ..., ...}]`). |
 | `ue_datatable_write` | `path`, `rows`, `mode="merge"` \| `"replace"`, `save=true` | Writes rows (as a list with `Name`, or `{name: fields}`). `merge` keeps the rows you don't mention. |
 | `ue_console_command` | `command`, `world="editor"` \| `server` \| `client[:N]` \| `pie:N` | Runs a console command in the editor world or a PIE world. |
-| `ue_pie_start` | `map`, `clients=1`, `listen_server=true`, `single_process=true` | Starts Play-In-Editor. `clients=1` with a listen server means host + 1 client. Without a listen server the clients join a dedicated PIE server, and `clients=0` is standalone. |
+| `ue_pie_start` | `map`, `clients=1`, `listen_server=true`, `single_process=true` | Starts Play-In-Editor and sets the player count (`clients=1` with a listen server means host + 1 client). **On UE 5.5 the net mode can't be set from Python** (see below); PIE uses the Net Mode chosen in the editor. |
 | `ue_pie_stop` | – | Stops PIE. |
 | `ue_pie_worlds` | – | Lists PIE worlds tagged `listen_server`, `dedicated_server`, `client` or `standalone`. |
 | `ue_log_tail` | `n=100`, `pattern`, `file` | Tails `Saved/Logs/*.log` from disk, optionally filtered by a regex. Works even if the editor is hung. |
@@ -111,6 +111,8 @@ Tool names use underscores (`ue_run_python`, not `ue.run_python`) because the Cl
 - Names, Text, numbers, bools and arrays convert as you'd expect.
 
 Property names: **Blueprint variables use their name exactly as in the Blueprint** (`IsLocked`), while properties declared in C++ use their Python snake_case name (`base_eye_height` for `BaseEyeHeight`).
+
+**PIE net mode on UE 5.5:** UE 5.5's Python can't change the PIE net mode. The enum isn't exposed to Python, so `PlayNetMode` can be neither read nor written, and the console `set` command is refused in the editor. Set it once by hand: open the options menu next to the Play button, then **Net Mode → Play As Listen Server**. The editor remembers this per user. `ue_pie_start` still sets the number of players, and reports the net mode under `settings_not_applied`. The Tier 2 C++ plugin will add a real setter.
 
 **Example batch:** set a default, read it back, and check the log in one call:
 

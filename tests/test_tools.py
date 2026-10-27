@@ -141,11 +141,17 @@ async def test_datatable_write_merge_and_replace(bridge):
         await server.ue_datatable_write("/Game/Data/DT_Items", [{"Damage": 1}])
 
 
+def _net_mode_set_by_hand(mode: int) -> None:
+    """On UE 5.5 Python cannot set Net Mode; the user picks it once in the Play menu."""
+    ue.STATE["play_settings"]._props["PlayNetMode"] = mode
+
+
 async def test_console_command_editor_and_pie_worlds(bridge):
     res = await server.ue_console_command("stat fps")
     assert res["world"] == "/Game/Maps/Level0.Level0"
     with pytest.raises(ToolError, match="no PIE session"):
         await server.ue_console_command("stat unit", world="client")
+    _net_mode_set_by_hand(1)
     await server.ue_pie_start(clients=2)
     await server.ue_console_command("stat net", world="server")
     await server.ue_console_command("stat net", world="client:1")
@@ -157,13 +163,14 @@ async def test_console_command_editor_and_pie_worlds(bridge):
 
 
 async def test_pie_listen_server_flow(bridge, unreal_module):
+    _net_mode_set_by_hand(1)  # Play As Listen Server
     res = await server.ue_pie_start(map="/Game/Maps/Level0", clients=1, listen_server=True)
     assert res["started"] is True
-    assert res["settings"] == {"play_net_mode": "PIE_LISTEN_SERVER", "play_number_of_clients": 2, "run_under_one_process": True}
-    # UE 5.5 cannot pythonize PlayNetMode; the reflection setter writes it, never console `set`.
-    assert res["play_net_mode_set_via"] == "SystemLibrary.set_byte_property_by_name"
+    # UE 5.5: the player count applies; the net mode cannot be set and is reported, never claimed.
+    assert res["settings"] == {"play_number_of_clients": 2, "run_under_one_process": True}
+    assert "Cannot nativize" in res["settings_not_applied"]["play_net_mode"]
+    assert "once by hand" in res["hint"]
     assert not any(cmd.lower().startswith("set ") for _, cmd in unreal_module.STATE["console"])
-    assert unreal_module.STATE["log"] == []
     assert ue.STATE["loaded_levels"] == ["/Game/Maps/Level0"]
     worlds = await server.ue_pie_worlds()
     assert worlds["in_pie"] is True
@@ -176,11 +183,13 @@ async def test_pie_listen_server_flow(bridge, unreal_module):
 
 
 async def test_pie_dedicated_and_standalone(bridge):
+    _net_mode_set_by_hand(2)  # Play As Client
     await server.ue_pie_start(clients=2, listen_server=False)
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["dedicated_server", "client", "client"]
     await server.ue_pie_stop()
+    _net_mode_set_by_hand(0)  # Play Standalone
     res = await server.ue_pie_start(clients=0, listen_server=False)
-    assert res["settings"]["play_net_mode"] == "PIE_STANDALONE"
+    assert res["settings"]["play_number_of_clients"] == 1
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["standalone"]
 
 
@@ -204,8 +213,7 @@ async def test_pie_start_uses_raw_int_when_the_engine_accepts_it(bridge, unreal_
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
 
 
-async def test_pie_start_reports_net_mode_it_could_not_set(bridge, unreal_module, monkeypatch):
-    monkeypatch.delattr(unreal_module.SystemLibrary, "set_byte_property_by_name")
+async def test_pie_start_reports_net_mode_it_could_not_set(bridge):
     res = await server.ue_pie_start(clients=1)
     assert res["started"] is True
     assert "play_net_mode" not in res["settings"]  # never claim a setting that did not apply

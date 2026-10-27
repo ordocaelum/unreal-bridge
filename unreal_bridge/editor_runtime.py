@@ -401,11 +401,12 @@ def _resolve_property(obj, names):
 def _set_play_net_mode(settings, name):
     """Set PlayNetMode and return how it was done.
 
-    UE 5.5 exports neither EPlayNetMode nor LevelEditorPlaySettings to Python,
-    so the property cannot be *read* from Python at all, and the console `set`
-    command is refused in the editor. Try, in order: the exported enum (other
-    engine versions), a raw int through set_editor_property, and the generic
-    reflection setter Blueprint uses for byte properties."""
+    On UE 5.5 this always fails (verified live): EPlayNetMode is not exported to
+    Python, so the property can be neither read nor written ("Cannot nativize
+    'int' as 'PlayNetMode'"), console `set` is refused in the editor, and the
+    Blueprint *PropertyByName setters are not exposed to Python. The user sets
+    Net Mode once by hand instead; the Tier 2 C++ plugin can add a real setter.
+    Try the exported enum (other engine versions), then a raw int."""
     index = _PLAY_NET_MODES.index(name)
     attempts = []
     enum = getattr(unreal, "PlayNetMode", None)
@@ -413,9 +414,6 @@ def _set_play_net_mode(settings, name):
         attempts.append(("set_editor_property", lambda: settings.set_editor_property(
             _resolve_property(settings, _PLAY_SETTING_NAMES["play_net_mode"]), getattr(enum, name))))
     attempts.append(("set_editor_property(int)", lambda: settings.set_editor_property("PlayNetMode", index)))
-    setter = getattr(unreal.SystemLibrary, "set_byte_property_by_name", None)
-    if setter is not None:
-        attempts.append(("SystemLibrary.set_byte_property_by_name", lambda: setter(settings, "PlayNetMode", index)))
     errors = []
     for method, attempt in attempts:
         try:
@@ -472,8 +470,9 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         out["settings_not_applied"] = failed
         if "play_net_mode" in failed:
             out["hint"] = (
-                "Set Net Mode once by hand (Play button's options menu > Net Mode); the editor "
-                "remembers it, and ue_pie_start still sets the player count."
+                "UE 5.5's Python cannot set the PIE net mode. Set it once by hand (Play button's "
+                "options menu > Net Mode); the editor remembers it, and ue_pie_start still sets the "
+                "player count. PIE ran with whatever Net Mode the editor has."
             )
     return out
 
