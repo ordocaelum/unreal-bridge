@@ -234,7 +234,8 @@ class FakeEditor:
                     raise ValueError(f"bad exec_mode {mode}")
         except Exception:
             success, result = False, traceback.format_exc()
-        output = [{"type": "Info", "output": line} for line in buf.getvalue().splitlines()]
+        # Like UE 5.5: one entry per line, each terminated with "\r\n".
+        output = [{"type": "Info", "output": line + "\r\n"} for line in buf.getvalue().splitlines()]
         if not success:
             output.append({"type": "Error", "output": result})
         return {"success": success, "result": result, "output": output}

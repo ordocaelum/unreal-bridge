@@ -264,13 +264,14 @@ class CommandResult:
     exec_mode: str
     elapsed_ms: float
 
+    # UE terminates each output entry with "\r\n"; strip it so entries join cleanly.
     @property
     def stdout(self) -> str:
-        return "\n".join(o.get("output", "") for o in self.output if o.get("type") == "Info")
+        return "\n".join(o.get("output", "").rstrip("\r\n") for o in self.output if o.get("type") == "Info")
 
     @property
     def stderr(self) -> str:
-        return "\n".join(o.get("output", "") for o in self.output if o.get("type") != "Info")
+        return "\n".join(o.get("output", "").rstrip("\r\n") for o in self.output if o.get("type") != "Info")
 
     def to_dict(self) -> dict[str, Any]:
         return {
