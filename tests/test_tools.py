@@ -160,9 +160,10 @@ async def test_pie_listen_server_flow(bridge, unreal_module):
     res = await server.ue_pie_start(map="/Game/Maps/Level0", clients=1, listen_server=True)
     assert res["started"] is True
     assert res["settings"] == {"play_net_mode": "PIE_LISTEN_SERVER", "play_number_of_clients": 2, "run_under_one_process": True}
-    # UE 5.5 cannot pythonize PlayNetMode, so it goes through the engine's `set` command.
-    assert res["applied_via_console_set"] == ["play_net_mode"]
-    assert unreal_module.STATE["set_commands"] == ["set LevelEditorPlaySettings PlayNetMode PIE_ListenServer"]
+    # UE 5.5 cannot pythonize PlayNetMode; the reflection setter writes it, never console `set`.
+    assert res["play_net_mode_set_via"] == "SystemLibrary.set_byte_property_by_name"
+    assert not any(cmd.lower().startswith("set ") for _, cmd in unreal_module.STATE["console"])
+    assert unreal_module.STATE["log"] == []
     assert ue.STATE["loaded_levels"] == ["/Game/Maps/Level0"]
     worlds = await server.ue_pie_worlds()
     assert worlds["in_pie"] is True
@@ -194,21 +195,24 @@ async def test_pie_start_on_engines_that_export_the_play_settings(bridge, unreal
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
 
 
-async def test_pie_start_still_plays_when_a_setting_cannot_be_applied(bridge, unreal_module, monkeypatch):
-    real_exec = unreal_module.SystemLibrary.execute_console_command
+async def test_pie_start_uses_raw_int_when_the_engine_accepts_it(bridge, unreal_module, monkeypatch):
+    settings = unreal_module.STATE["play_settings"]
+    monkeypatch.setattr(settings, "set_editor_property", lambda name, value: settings._props.__setitem__(name, value))
+    res = await server.ue_pie_start(clients=1)
+    assert res["play_net_mode_set_via"] == "set_editor_property(int)"
+    assert settings._props["PlayNetMode"] == 1
+    assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
 
-    def exec_without_set(ctx, command, player=None):
-        if command.lower().startswith("set "):
-            raise RuntimeError("set is disabled")
-        real_exec(ctx, command, player)
 
-    monkeypatch.setattr(unreal_module.SystemLibrary, "execute_console_command", staticmethod(exec_without_set))
+async def test_pie_start_reports_net_mode_it_could_not_set(bridge, unreal_module, monkeypatch):
+    monkeypatch.delattr(unreal_module.SystemLibrary, "set_byte_property_by_name")
     res = await server.ue_pie_start(clients=1)
     assert res["started"] is True
-    assert "Cannot pythonize" in res["settings_not_applied"]["play_net_mode"]
-    assert "set is disabled" in res["settings_not_applied"]["play_net_mode"]
+    assert "play_net_mode" not in res["settings"]  # never claim a setting that did not apply
+    assert "Cannot nativize" in res["settings_not_applied"]["play_net_mode"]
+    assert "Net Mode" in res["hint"]
     assert res["settings"] == {"play_number_of_clients": 2, "run_under_one_process": True}
-    assert (await server.ue_pie_worlds())["in_pie"] is True
+    assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["standalone", "standalone"]
 
 
 async def test_pie_start_bad_map(bridge):

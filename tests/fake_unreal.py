@@ -173,19 +173,23 @@ class _LevelEditorPlaySettings(Object):
     PlayNetMode is a ByteProperty of the non-exported EPlayNetMode enum, which
     UE 5.5 can neither read nor write from Python (observed live)."""
 
-    def _check_pythonizable(self, name: str) -> None:
-        if name == "PlayNetMode" and "PlayNetMode" not in globals():
+    def _enum_exported(self) -> bool:
+        return "PlayNetMode" in globals()
+
+    def get_editor_property(self, name: str) -> object:
+        if name == "PlayNetMode" and not self._enum_exported():
             raise Exception(
                 "Object: Failed to convert property 'PlayNetMode' (ByteProperty) for attribute 'PlayNetMode' "
                 "on 'LevelEditorPlaySettings'\n  TypeError: PythonizeProperty: Cannot pythonize 'PlayNetMode' (ByteProperty)"
             )
-
-    def get_editor_property(self, name: str) -> object:
-        self._check_pythonizable(name)
         return super().get_editor_property(name)
 
     def set_editor_property(self, name: str, value: object) -> None:
-        self._check_pythonizable(name)
+        # Unverified on real UE 5.5 whether a raw int is accepted; model the pessimistic case.
+        if name == "PlayNetMode" and not self._enum_exported():
+            raise Exception("Object: Failed to convert property 'PlayNetMode' (ByteProperty): Cannot nativize 'int' as 'EnumBase'")
+        if name == "PlayNetMode" and not isinstance(value, EnumBase):
+            raise TypeError("PlayNetMode: expected an enum")
         super().set_editor_property(name, value)
 
 
@@ -238,7 +242,7 @@ def reset() -> None:
         editor_world=level,
         pie_worlds=[],
         console=[],
-        set_commands=[],
+        log=[],
         saved=[],
         compiled=[],
         modified=[],
@@ -340,16 +344,15 @@ class DataTableFunctionLibrary:
 
 class SystemLibrary:
     @staticmethod
+    def set_byte_property_by_name(obj: Object, property_name: str, value: int) -> None:
+        # The Blueprint reflection setter: writes the byte (incl. TEnumAsByte) by name.
+        if property_name in obj._props:
+            obj._props[property_name] = value
+
+    @staticmethod
     def execute_console_command(world_context_object: object, command: str, specific_player: object = None) -> None:
-        parts = command.split()
-        if len(parts) == 4 and parts[0].lower() == "set" and parts[1] == "LevelEditorPlaySettings":
-            # Engine `set <Class> <Property> <Value>`: imports UE text into the CDO's property.
-            _, _, prop, text = parts
-            props = STATE["play_settings"]._props
-            if prop in props:
-                enum_names = {"PIE_Standalone": 0, "PIE_ListenServer": 1, "PIE_Client": 2}
-                props[prop] = enum_names[text] if text in enum_names else {"True": True, "False": False}.get(text, text if not text.isdigit() else int(text))
-            STATE["set_commands"].append(command)
+        if command.lower().startswith("set "):
+            STATE["log"].append("Set commands not allowed in the editor")  # what UE 5.5 logs
             return
         STATE["console"].append((world_context_object.get_path_name() if world_context_object else None, command))
 
@@ -390,7 +393,9 @@ class LevelEditorSubsystem:
         base = STATE["editor_world"].get_name()
         worlds = []
         if mode == 0:  # PIE_STANDALONE
-            worlds.append(World(f"/Game/Maps/UEDPIE_0_{base}.{base}", "standalone"))
+            # One independent standalone world per player (observed live on UE 5.5).
+            for i in range(players):
+                worlds.append(World(f"/Game/Maps/UEDPIE_{i}_{base}.{base}", "standalone"))
         else:
             if mode == 1:  # PIE_LISTEN_SERVER
                 worlds.append(World(f"/Game/Maps/UEDPIE_0_{base}.{base}", "listen_server"))

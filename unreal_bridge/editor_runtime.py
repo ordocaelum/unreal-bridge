@@ -398,28 +398,32 @@ def _resolve_property(obj, names):
     raise AttributeError(" | ".join(errors))
 
 
-# C++ enumerator names for EPlayNetMode, for the console `set` fallback.
-_PLAY_NET_MODE_TEXT = {"PIE_STANDALONE": "PIE_Standalone", "PIE_LISTEN_SERVER": "PIE_ListenServer", "PIE_CLIENT": "PIE_Client"}
+def _set_play_net_mode(settings, name):
+    """Set PlayNetMode and return how it was done.
 
-
-def _console_set(cpp_name, text):
-    """Set a LevelEditorPlaySettings property with the engine's `set` console
-    command. It parses the value as UE text, so it works for properties Python
-    cannot convert (UE 5.5 cannot pythonize PlayNetMode at all)."""
-    unreal.SystemLibrary.execute_console_command(_editor_world(), "set LevelEditorPlaySettings %s %s" % (cpp_name, text), None)
-
-
-def _play_net_mode(settings, prop, name):
-    """Return an EPlayNetMode value. The enum is an old-style UENUM that UE 5.5
-    does not export as ``unreal.PlayNetMode``, so fall back to the type of the
-    property's current value, then to the raw integer."""
+    UE 5.5 exports neither EPlayNetMode nor LevelEditorPlaySettings to Python,
+    so the property cannot be *read* from Python at all, and the console `set`
+    command is refused in the editor. Try, in order: the exported enum (other
+    engine versions), a raw int through set_editor_property, and the generic
+    reflection setter Blueprint uses for byte properties."""
+    index = _PLAY_NET_MODES.index(name)
+    attempts = []
     enum = getattr(unreal, "PlayNetMode", None)
-    if enum is None:
-        current = settings.get_editor_property(prop)
-        if isinstance(current, _ue_types("EnumBase")):
-            enum = type(current)
-    member = getattr(enum, name, None) if enum is not None else None
-    return member if member is not None else _PLAY_NET_MODES.index(name)
+    if enum is not None:
+        attempts.append(("set_editor_property", lambda: settings.set_editor_property(
+            _resolve_property(settings, _PLAY_SETTING_NAMES["play_net_mode"]), getattr(enum, name))))
+    attempts.append(("set_editor_property(int)", lambda: settings.set_editor_property("PlayNetMode", index)))
+    setter = getattr(unreal.SystemLibrary, "set_byte_property_by_name", None)
+    if setter is not None:
+        attempts.append(("SystemLibrary.set_byte_property_by_name", lambda: setter(settings, "PlayNetMode", index)))
+    errors = []
+    for method, attempt in attempts:
+        try:
+            attempt()
+            return method
+        except Exception as exc:
+            errors.append("%s: %s: %s" % (method, type(exc).__name__, exc))
+    raise RuntimeError(" | ".join(errors) or "no way to set PlayNetMode from Python")
 
 
 def pie_start(map=None, clients=1, listen_server=True, single_process=True):
@@ -435,48 +439,42 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         net_mode, players = "PIE_CLIENT", clients
     else:
         net_mode, players = "PIE_STANDALONE", 1
-    applied, failed, via_console = {}, {}, []
+    applied, failed = {}, {}
+    net_mode_method = None
     try:
         settings = _play_settings()
     except Exception as exc:
         settings = None
         failed["level_editor_play_settings"] = "%s: %s" % (type(exc).__name__, exc)
     if settings is not None:
-        # Each setting is resolved and set on its own, so one failure never blocks the others or PIE.
-        values = {
-            "play_net_mode": lambda prop: _play_net_mode(settings, prop, net_mode),
-            "play_number_of_clients": lambda prop: players,
-            "run_under_one_process": lambda prop: bool(single_process),
-        }
-        texts = {
-            "play_net_mode": _PLAY_NET_MODE_TEXT[net_mode],
-            "play_number_of_clients": str(players),
-            "run_under_one_process": "True" if single_process else "False",
-        }
-        for key, make_value in values.items():
+        # Each setting is applied on its own, so one failure never blocks the others or PIE.
+        try:
+            net_mode_method = _set_play_net_mode(settings, net_mode)
+            applied["play_net_mode"] = net_mode
+        except Exception as exc:
+            failed["play_net_mode"] = str(exc)
+        for key, value in (("play_number_of_clients", players), ("run_under_one_process", bool(single_process))):
             try:
-                prop = _resolve_property(settings, _PLAY_SETTING_NAMES[key])
-                value = make_value(prop)
-                settings.set_editor_property(prop, value)
-                applied[key] = net_mode if key == "play_net_mode" else to_json(value)
+                settings.set_editor_property(_resolve_property(settings, _PLAY_SETTING_NAMES[key]), value)
+                applied[key] = value
             except Exception as exc:
-                try:
-                    _console_set(_PLAY_SETTING_NAMES[key][1], texts[key])
-                    applied[key] = net_mode if key == "play_net_mode" else make_value(None)
-                    via_console.append(key)
-                except Exception as console_exc:
-                    failed[key] = "%s: %s; console set: %s: %s" % (
-                        type(exc).__name__, exc, type(console_exc).__name__, console_exc)
+                failed[key] = "%s: %s" % (type(exc).__name__, exc)
     editor.editor_request_begin_play()
     out = {
         "started": True,
         "settings": applied,
-        "note": "PIE begins on the next editor tick; call ue_pie_worlds to see the worlds.",
+        "note": "PIE begins on the next editor tick. Python cannot read PlayNetMode back, so "
+        "confirm the net mode with ue_pie_worlds (each world's role).",
     }
-    if via_console:
-        out["applied_via_console_set"] = via_console
+    if net_mode_method:
+        out["play_net_mode_set_via"] = net_mode_method
     if failed:
         out["settings_not_applied"] = failed
+        if "play_net_mode" in failed:
+            out["hint"] = (
+                "Set Net Mode once by hand (Play button's options menu > Net Mode); the editor "
+                "remembers it, and ue_pie_start still sets the player count."
+            )
     return out
 
 
