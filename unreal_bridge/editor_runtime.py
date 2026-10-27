@@ -358,6 +358,22 @@ def console_command(command, world="editor"):
     return {"command": command, "world": target.get_path_name() if target is not None else None}
 
 
+_PLAY_NET_MODES = ("PIE_STANDALONE", "PIE_LISTEN_SERVER", "PIE_CLIENT")  # EPlayNetMode order
+
+
+def _play_net_mode(settings, name):
+    """Return an EPlayNetMode value. The enum is an old-style UENUM that UE 5.5
+    does not always export as ``unreal.PlayNetMode``, so fall back to the type of
+    the property's current value, then to the raw integer."""
+    enum = getattr(unreal, "PlayNetMode", None)
+    if enum is None:
+        current = settings.get_editor_property("play_net_mode")
+        if isinstance(current, _ue_types("EnumBase")):
+            enum = type(current)
+    member = getattr(enum, name, None) if enum is not None else None
+    return member if member is not None else _PLAY_NET_MODES.index(name)
+
+
 def pie_start(map=None, clients=1, listen_server=True, single_process=True):
     editor = _level_editor()
     if editor.is_in_play_in_editor():
@@ -366,23 +382,30 @@ def pie_start(map=None, clients=1, listen_server=True, single_process=True):
         if not editor.load_level(map):
             raise RuntimeError("could not load map %s" % map)
     if listen_server:
-        net_mode, players = unreal.PlayNetMode.PIE_LISTEN_SERVER, clients + 1
+        net_mode, players = "PIE_LISTEN_SERVER", clients + 1
     elif clients > 0:
-        net_mode, players = unreal.PlayNetMode.PIE_CLIENT, clients
+        net_mode, players = "PIE_CLIENT", clients
     else:
-        net_mode, players = unreal.PlayNetMode.PIE_STANDALONE, 1
-    settings = unreal.get_default_object(unreal.LevelEditorPlaySettings)
+        net_mode, players = "PIE_STANDALONE", 1
     applied, failed = {}, {}
-    for prop, value in (
-        ("play_net_mode", net_mode),
-        ("play_number_of_clients", players),
-        ("run_under_one_process", bool(single_process)),
-    ):
-        try:
-            settings.set_editor_property(prop, value)
-            applied[prop] = to_json(value)
-        except Exception as exc:
-            failed[prop] = str(exc)
+    try:
+        settings = unreal.get_default_object(unreal.LevelEditorPlaySettings)
+    except Exception as exc:
+        settings = None
+        failed["level_editor_play_settings"] = str(exc)
+    if settings is not None:
+        # Values are built lazily so a failure on one setting never blocks the others or PIE.
+        for prop, make_value in (
+            ("play_net_mode", lambda: _play_net_mode(settings, net_mode)),
+            ("play_number_of_clients", lambda: players),
+            ("run_under_one_process", lambda: bool(single_process)),
+        ):
+            try:
+                value = make_value()
+                settings.set_editor_property(prop, value)
+                applied[prop] = net_mode if prop == "play_net_mode" else to_json(value)
+            except Exception as exc:
+                failed[prop] = "%s: %s" % (type(exc).__name__, exc)
     editor.editor_request_begin_play()
     out = {
         "started": True,

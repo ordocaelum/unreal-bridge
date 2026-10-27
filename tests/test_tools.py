@@ -180,6 +180,34 @@ async def test_pie_dedicated_and_standalone(bridge):
     assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["standalone"]
 
 
+async def test_pie_start_without_playnetmode_enum(bridge, unreal_module, monkeypatch):
+    # UE 5.5 may not export the old-style EPlayNetMode enum to Python.
+    monkeypatch.delattr(unreal_module, "PlayNetMode")
+    unreal_module.STATE["play_settings"]._props["play_net_mode"] = 0
+    res = await server.ue_pie_start(clients=1, listen_server=True)
+    assert res["started"] is True and "settings_not_applied" not in res
+    assert res["settings"]["play_net_mode"] == "PIE_LISTEN_SERVER"
+    assert unreal_module.STATE["play_settings"]._props["play_net_mode"] == 1
+    assert [w["role"] for w in (await server.ue_pie_worlds())["worlds"]] == ["listen_server", "client"]
+
+
+async def test_pie_start_still_plays_when_settings_are_inaccessible(bridge, unreal_module, monkeypatch):
+    settings = unreal_module.STATE["play_settings"]
+    real_set = settings.set_editor_property
+
+    def guarded(name, value):
+        if name == "play_net_mode":
+            raise Exception("Property 'PlayNetMode' for attribute 'play_net_mode' on 'LevelEditorPlaySettings' is protected and cannot be set")
+        real_set(name, value)
+
+    monkeypatch.setattr(settings, "set_editor_property", guarded)
+    res = await server.ue_pie_start(clients=1)
+    assert res["started"] is True
+    assert "protected" in res["settings_not_applied"]["play_net_mode"]
+    assert res["settings"] == {"play_number_of_clients": 2, "run_under_one_process": True}
+    assert (await server.ue_pie_worlds())["in_pie"] is True
+
+
 async def test_pie_start_bad_map(bridge):
     with pytest.raises(ToolError, match="could not load map"):
         await server.ue_pie_start(map="/Game/Maps/Nope")

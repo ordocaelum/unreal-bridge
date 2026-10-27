@@ -347,14 +347,14 @@ class LevelEditorSubsystem:
 
     def editor_request_begin_play(self) -> None:
         settings = STATE["play_settings"]._props
-        mode = settings["play_net_mode"]
+        mode = getattr(settings["play_net_mode"], "value", settings["play_net_mode"])  # enum or raw int
         players = settings["play_number_of_clients"]
         base = STATE["editor_world"].get_name()
         worlds = []
-        if mode == PlayNetMode.PIE_STANDALONE:
+        if mode == 0:  # PIE_STANDALONE
             worlds.append(World(f"/Game/Maps/UEDPIE_0_{base}.{base}", "standalone"))
         else:
-            if mode == PlayNetMode.PIE_LISTEN_SERVER:
+            if mode == 1:  # PIE_LISTEN_SERVER
                 worlds.append(World(f"/Game/Maps/UEDPIE_0_{base}.{base}", "listen_server"))
                 clients = players - 1
             else:
